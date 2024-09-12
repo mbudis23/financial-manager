@@ -18,12 +18,14 @@ const userRoute = require('./routes/userRoute');
 const incomeRoute = require('./routes/incomeRoute');
 const expenseRoute = require('./routes/expenseRoute')
 const categoryRoute = require('./routes/categoryRoute')
+const transferRoute = require('./routes/transferRoute')
 
 app.use('/api/account', accountRoute);
 app.use('/api/user', userRoute);
 app.use('api/income', incomeRoute);
 app.use('api/expense', expenseRoute);
 app.use('api/category', categoryRoute);
+app.use('api/transfer', transferRoute);
 
 // Start server
 const PORT = process.env.PORT || 5000;
