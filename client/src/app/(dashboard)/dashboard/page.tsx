@@ -8,7 +8,6 @@ export default function DashboardPage()
                 <NavigationBar/>
             </div>
             <div className="grow">
-asa
             </div>
         </main>
     )
