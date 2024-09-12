@@ -14,10 +14,12 @@ connectDB();
 
 // Import Routes
 const accountRoute = require('./routes/accountRoute');
-app.use('/api/account', accountRoute);
-
 const userRoute = require('./routes/userRoute');
+const incomeRoute = require('./routes/incomeRoute');
+
+app.use('/api/account', accountRoute);
 app.use('/api/user', userRoute);
+app.use('api/income', incomeRoute);
 
 // Start server
 const PORT = process.env.PORT || 5000;
