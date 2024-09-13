@@ -1,83 +1,170 @@
+const bcrypt = require('bcryptjs');
 const User = require('../models/user');
-const bcrypt = require("bcrypt");
+const { hashPassword, authenticateToken, generateToken } = require('../middlewares/userMiddleware');
 
-// Register user
-const registerUser = async (req, res) => {
+// Fungsi untuk menangani registrasi user baru
+exports.registerUser = async (req, res) => {
+  const { name, email, password } = req.body;
+
+  // Validasi input (Anda bisa menambahkan validasi lebih detail di sini)
+  if (!name || !email || !password) {
+    return res.status(400).json({ message: 'Semua field wajib diisi.' });
+  }
+
   try {
-    const { name, email, password } = req.body;
-
-    // Check if email already exists
+    // Cek apakah email sudah digunakan
     const existingUser = await User.findOne({ email });
     if (existingUser) {
-      return res.status(400).json({ message: "Email already in use" });
+      return res.status(400).json({ message: 'Email telah digunakan.' });
     }
 
-    // Hash password
-    const hashedPassword = await bcrypt.hash(password, 10);
+    // Hash password user dengan bcrypt
+    const hashedPassword = await hashPassword(password);
 
-    // Create new user object
+    // Buat instance user baru
     const newUser = new User({
       name,
       email,
       password: hashedPassword,
     });
 
-    // If profile picture is uploaded, save it
-    if (req.file) {
-      newUser.profilePicture = {
-        filename: req.file.originalname,
-        data: req.file.buffer,
-        contentType: req.file.mimetype,
-      };
-    }
+    // Simpan user ke database
+    const savedUser = await newUser.save();
 
-    // Save user to the database
-    await newUser.save();
-    res.status(201).json({ message: "User registered successfully" });
+    // Buat token JWT dengan data user
+    const token = generateToken(savedUser);
+
+    // Kirim respons sukses dengan token
+    return res.status(201).json({
+      message: 'Registrasi berhasil.',
+      token,
+      user: {
+        id: savedUser._id,
+        name: savedUser.name,
+        email: savedUser.email,
+      },
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error registering user", error });
+    // Tangani kesalahan jika terjadi
+    console.error('Error saat registrasi:', error);
+    return res.status(500).json({ message: 'Terjadi kesalahan server.', error });
   }
 };
 
-// Login user
-const loginUser = async (req, res) => {
-  try {
-    const { email, password } = req.body;
+// LOGIN (POST) - Autentikasi user
+exports.loginUser = async (req, res) => {
+  const { email, password } = req.body;
 
-    // Check if user exists
+  // Validasi input (Anda bisa menambahkan validasi lebih detail di sini)
+  if (!email || !password) {
+    return res.status(400).json({ message: 'Email dan password wajib diisi.' });
+  }
+
+  try {
+    // Cek apakah user dengan email tersebut ada di database
     const user = await User.findOne({ email });
     if (!user) {
-      return res.status(400).json({ message: "Invalid email or password" });
+      return res.status(400).json({ message: 'Email atau password salah.' });
     }
 
-    // Check password
+    // Periksa apakah password yang dimasukkan cocok dengan password yang ter-hash di database
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) {
-      return res.status(400).json({ message: "Invalid email or password" });
+      return res.status(400).json({ message: 'Email atau password salah.' });
     }
 
-    res.status(200).json({ message: "Login successful", userId: user._id });
+    // Jika login berhasil, buat token JWT
+    const token = generateToken(user);
+
+    // Kirim respons dengan token
+    return res.status(200).json({
+      message: 'Login berhasil.',
+      token,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+      },
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error logging in", error });
+    // Tangani kesalahan jika terjadi
+    console.error('Error saat login:', error);
+    return res.status(500).json({ message: 'Terjadi kesalahan server.', error });
   }
 };
 
-// Get user by ID
-const getUserById = async (req, res) => {
+// UPDATE USER (PUT) - Pembaruan informasi pengguna
+exports.updateUser = async (req, res) => {
+  const { id } = req.params;  // Ambil ID user dari URL
+  const { name, email, password } = req.body;  // Ambil data baru dari body request
+
   try {
-    const userId = req.params.id;
-    const user = await User.findById(userId).select("-password"); // Do not return password
+    // Temukan user berdasarkan ID
+    const user = await User.findById(id);
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return res.status(404).json({ message: 'User tidak ditemukan.' });
     }
-    res.status(200).json(user);
+
+    // Update informasi user jika tersedia
+    if (name) user.name = name;
+    if (email) user.email = email;
+
+    // Jika password baru disediakan, hash password dan update
+    if (password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      user.password = hashedPassword;
+    }
+
+    // Simpan perubahan ke database
+    const updatedUser = await user.save();
+
+    // Kirim respons dengan informasi user yang diperbarui
+    return res.status(200).json({
+      message: 'Informasi pengguna berhasil diperbarui.',
+      user: { id: updatedUser._id, name: updatedUser.name, email: updatedUser.email },
+    });
   } catch (error) {
-    res.status(500).json({ message: "Error retrieving user", error });
+    console.error('Error saat memperbarui pengguna:', error);
+    return res.status(500).json({ message: 'Terjadi kesalahan server.', error });
   }
 };
 
-module.exports = {
-  registerUser,
-  loginUser,
-  getUserById,
+// RESET PASSWORD (PUT) - Reset password pengguna
+exports.resetPassword = async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+
+  if (!currentPassword || !newPassword) {
+    return res.status(400).json({ message: 'Password lama dan password baru wajib diisi.' });
+  }
+
+  try {
+    // Temukan user berdasarkan ID dari token
+    const userId = req.user.id;
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User tidak ditemukan.' });
+    }
+
+    // Verifikasi password lama
+    const isMatch = await bcrypt.compare(currentPassword, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Password lama salah.' });
+    }
+
+    // Hash password baru
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+
+    // Simpan perubahan ke database
+    const updatedUser = await user.save();
+
+    // Kirim respons sukses
+    return res.status(200).json({
+      message: 'Password berhasil di-reset.',
+      user: { id: updatedUser._id, name: updatedUser.name, email: updatedUser.email },
+    });
+  } catch (error) {
+    console.error('Error saat mereset password:', error);
+    return res.status(500).json({ message: 'Terjadi kesalahan server.', error });
+  }
 };
